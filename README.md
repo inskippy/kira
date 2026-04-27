@@ -1,4 +1,4 @@
-# KIRA — Knowledge Intelligence and Retrieval Assistant
+# KIRA - Knowledge Intelligence and Retrieval Assistant
 
 KIRA is a lightweight, local-first Retrieval-Augmented Generation (RAG) 
 system for semantic search and question answering over knowledgebases.
