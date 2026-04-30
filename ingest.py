@@ -182,10 +182,101 @@ def load_index(name):
             bm25 = pickle.load(f)
     return index, chunks, bm25
 
+# --------------------- csv parsing & chunking, standalone for now ------------------
+def load_and_chunk_csv(csv_path, text_fields=None, id_field="ID"):
+    """
+    Ingest a CSV where each row becomes one chunk.
+    text_fields: optional list of column names to embed.
+                 If None, uses all columns except id_field.
+    id_field: column to use as the source citation (ticket ID).
+    """
+    import pandas as pd
+    chunks = []
+    df = pd.read_csv(csv_path)
+    
+    print(f"  Columns available: {list(df.columns)}")
+    print(f"  Rows: {len(df)}")
+
+    for idx, row in df.iterrows():
+        if text_fields:
+            text = " | ".join(
+                f"{f}: {row[f]}" for f in text_fields
+                if f in row and pd.notna(row[f]) and str(row[f]).strip()
+            )
+        else:
+            text = " | ".join(
+                f"{col}: {val}" for col, val in row.items()
+                if pd.notna(val) and str(val).strip() and col != id_field
+            )
+
+        if len(text.split()) < 5:
+            continue
+
+        ticket_id = str(row[id_field]) if id_field in row and pd.notna(row[id_field]) else f"row_{idx+1}"
+
+        chunks.append({
+            "text": text,
+            "source": ticket_id,
+            "page": idx + 1
+        })
+
+    print(f"  {len(chunks)} chunks from {Path(csv_path).name}")
+    return chunks
+
+
+def build_index_csv(csv_path, name, text_fields=None, id_field="Issue key"):
+    idx_path, chunks_path, bm25_path = index_paths(name)
+    print("Loading and chunking CSV...")
+    chunks = load_and_chunk_csv(csv_path, text_fields, id_field)
+
+    print("Embedding chunks...")
+    model = SentenceTransformer(MODEL_NAME)
+    embeddings = model.encode(
+        [c["text"] for c in chunks],
+        show_progress_bar=True,
+        convert_to_numpy=True
+    ).astype(np.float32)
+
+    print("Building FAISS index...")
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(embeddings)
+    faiss.write_index(index, idx_path)
+    with open(chunks_path, "wb") as f:
+        pickle.dump(chunks, f)
+    print(f"Saved: {idx_path}, {chunks_path}")
+
+    print("Building BM25 index...")
+    tokenized_chunks = [c["text"].lower().split() for c in chunks]
+    bm25 = BM25Okapi(tokenized_chunks)
+    with open(bm25_path, "wb") as f:
+        pickle.dump(bm25, f)
+    print(f"Saved: {bm25_path}")
+
+    return index, chunks, bm25
 
 if __name__ == "__main__":
-    # build_index("NASA_Docs")
-    import sys
-    pdf_dir = sys.argv[1] if len(sys.argv) > 1 else "NASA_Docs"
-    name = sys.argv[2] if len(sys.argv) > 2 else "nasa"
-    build_index(pdf_dir, name)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("path", help="Path to source material")
+    parser.add_argument("name", help="Name for identifying built index")
+
+    parser.add_argument("--csv", help="Comma-separated column names to ingest")
+    parser.add_argument("--id_col", help="ID column for CSV")
+
+    args = parser.parse_args()
+
+    text_fields = None
+    if args.csv is not None:
+        text_fields = args.csv.split(",") if args.csv.strip() else None
+
+    id_col = args.id_col
+
+    is_csv = args.csv is not None
+
+    if is_csv:
+        build_index_csv(args.path, args.name, text_fields=text_fields, id_field=id_col)
+    else:
+        build_index(args.path, args.name)
+
