@@ -4,6 +4,7 @@ import faiss
 import pickle
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from rank_bm25 import BM25Okapi
 
 INDEX_DIR = "indexes"
 # keep this so kira.py import doesn't break — point it at "nasa"
@@ -15,7 +16,12 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 def index_paths(name="default"):
     base = Path(INDEX_DIR) / name
     base.mkdir(parents=True, exist_ok=True)
-    return str(base / "rag_index.faiss"), str(base / "rag_chunks.pkl")
+    return (
+            str(base / "rag_index.faiss"),
+            str(base / "rag_chunks.pkl"),
+            str(base / "bm25.pkl")
+        )
+
 
 # load and chunk the knowledgebase
 def load_and_chunk(pdf_dir, chunk_size=500, overlap=50):
@@ -65,7 +71,7 @@ def show_document_word_distribution(pdf_dir):
     print(f"Pages under 100 words: {sum(1 for w in word_counts if w < 100)}")
 
 def build_index(pdf_dir, name):
-    idx_path, chunks_path = index_paths(name)
+    idx_path, chunks_path, bm25_path = index_paths(name)
     print("Loading and chunking PDFs...")
     chunks = load_and_chunk(pdf_dir)
     print(f"  {len(chunks)} chunks from {len(list(Path(pdf_dir).glob('*.pdf')))} PDFs")
@@ -92,11 +98,19 @@ def build_index(pdf_dir, name):
 
     # print(f"Saved: {INDEX_PATH}, {CHUNKS_PATH}")
     print(f"Saved: {idx_path}, {chunks_path}")
-    return index, chunks
+    
+    print("Building BM25 index...")
+    tokenized_chunks = [c["text"].lower().split() for c in chunks]
+    bm25 = BM25Okapi(tokenized_chunks)
+    with open(bm25_path, "wb") as f:
+        pickle.dump(bm25, f)
+    print(f"Saved: {bm25_path}")
+    
+    return index, chunks, bm25
 
 def add_documents(pdf_dir, name):
     """Add new PDFs to an existing index without rebuilding."""
-    idx_path, chunks_path = index_paths(name)
+    idx_path, chunks_path, bm25_path = index_paths(name)
     if not Path(idx_path).exists():
         raise FileNotFoundError("No existing index found. Run build_index() first.")
 # def add_documents(pdf_dir):
@@ -114,7 +128,11 @@ def add_documents(pdf_dir, name):
     new_chunks = load_and_chunk(pdf_dir)
     if not new_chunks:
         print("No new chunks found.")
-        return index, chunks
+        bm25 = None
+        if Path(bm25_path).exists():
+            with open(bm25_path, "rb") as f:
+                bm25 = pickle.load(f)
+        return index, chunks, bm25
 
     print("Embedding new chunks...")
     model = SentenceTransformer(MODEL_NAME)
@@ -134,7 +152,15 @@ def add_documents(pdf_dir, name):
         pickle.dump(chunks, f)
 
     print(f"Added {index.ntotal - existing_count} vectors. Total: {index.ntotal}")
-    return index, chunks
+
+    print("Rebuilding BM25 index...")
+    tokenized_chunks = [c["text"].lower().split() for c in chunks]
+    bm25 = BM25Okapi(tokenized_chunks)
+    with open(bm25_path, "wb") as f:
+        pickle.dump(bm25, f)
+    print(f"Saved: {bm25_path}")
+
+    return index, chunks, bm25
 
 # def load_index():
 #     """Load existing index and chunks from disk."""
@@ -144,13 +170,17 @@ def add_documents(pdf_dir, name):
 #     with open(CHUNKS_PATH, "rb") as f:
 
 def load_index(name):
-    idx_path, chunks_path = index_paths(name)
+    idx_path, chunks_path, bm25_path = index_paths(name)
     if not Path(idx_path).exists():
         raise FileNotFoundError(f"No index found for '{name}'. Run build_index() first.")
     index = faiss.read_index(idx_path)
     with open(chunks_path, "rb") as f:
         chunks = pickle.load(f)
-    return index, chunks
+    bm25 = None
+    if Path(bm25_path).exists():
+        with open(bm25_path, "rb") as f:
+            bm25 = pickle.load(f)
+    return index, chunks, bm25
 
 
 if __name__ == "__main__":

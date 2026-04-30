@@ -42,7 +42,7 @@ def load_kira(name):
         return build_index(PDF_DIRS.get(name, name), name)
 
 loaded = {name: load_kira(name) for name in selected}
-total_vectors = sum(idx.ntotal for idx, _ in loaded.values()) if loaded else 0
+total_vectors = sum(idx.ntotal for idx, _, _ in loaded.values()) if loaded else 0
 
 
 # warmup code - without this, first query has high latency
@@ -52,8 +52,8 @@ if "warmed_up" not in st.session_state:
 if not st.session_state.warmed_up and loaded:
     get_encoder().encode(["warmup"], convert_to_numpy=True)
     first_name = next(iter(loaded))
-    warmup_index, warmup_chunks = loaded[first_name]
-    rag_query("warmup", warmup_index, warmup_chunks)
+    warmup_index, warmup_chunks, warmup_bm25 = loaded[first_name]
+    rag_query("warmup", warmup_index, warmup_chunks, warmup_bm25)
     st.session_state.warmed_up = True
 
 
@@ -103,8 +103,8 @@ if query and loaded:
         # answer, results = rag_query(query, index, chunks)
         from rag import generate
         all_results = []
-        for name, (index, chunks) in loaded.items():
-            _, results = rag_query(query, index, chunks, TOP_K)
+        for name, (index, chunks, bm25) in loaded.items():
+            _, results = rag_query(query, index, chunks, bm25, TOP_K)
             for r in results:
                 r["index"] = name
             all_results.extend(results)
