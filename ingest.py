@@ -183,7 +183,33 @@ def load_index(name):
     return index, chunks, bm25
 
 # --------------------- csv parsing & chunking, standalone for now ------------------
-def load_and_chunk_csv(csv_path, text_fields=None, id_field="ID"):
+
+
+    chunks = []  # list of dicts: {text, source, page}
+    
+    for pdf_path in Path(pdf_dir).glob("*.pdf"):
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text()
+                if not text:
+                    continue
+                
+                # slide window across page text
+                words = text.split()
+                for i in range(0, len(words), chunk_size - overlap):
+                    chunk_words = words[i : i + chunk_size]
+                    if len(chunk_words) < 20:  # skip tiny tail chunks
+                        continue
+                    chunks.append({
+                        "text": " ".join(chunk_words),
+                        "source": pdf_path.name,
+                        "page": page_num
+                    })
+    
+    return chunks
+
+
+def load_and_chunk_csv(csv_dir, text_fields=None, id_field="ID"):
     """
     Ingest a CSV where each row becomes one chunk.
     text_fields: optional list of column names to embed.
@@ -192,35 +218,36 @@ def load_and_chunk_csv(csv_path, text_fields=None, id_field="ID"):
     """
     import pandas as pd
     chunks = []
-    df = pd.read_csv(csv_path)
-    
-    print(f"  Columns available: {list(df.columns)}")
-    print(f"  Rows: {len(df)}")
+    for csv_path in Path(csv_dir).glob("*.csv"):
+        df = pd.read_csv(csv_path)
+        
+        print(f"  Columns available: {list(df.columns)}")
+        print(f"  Rows: {len(df)}")
 
-    for idx, row in df.iterrows():
-        if text_fields:
-            text = " | ".join(
-                f"{f}: {row[f]}" for f in text_fields
-                if f in row and pd.notna(row[f]) and str(row[f]).strip()
-            )
-        else:
-            text = " | ".join(
-                f"{col}: {val}" for col, val in row.items()
-                if pd.notna(val) and str(val).strip() and col != id_field
-            )
+        for idx, row in df.iterrows():
+            if text_fields:
+                text = " | ".join(
+                    f"{f}: {row[f]}" for f in text_fields
+                    if f in row and pd.notna(row[f]) and str(row[f]).strip()
+                )
+            else:
+                text = " | ".join(
+                    f"{col}: {val}" for col, val in row.items()
+                    if pd.notna(val) and str(val).strip() and col != id_field
+                )
 
-        if len(text.split()) < 5:
-            continue
+            if len(text.split()) < 5:
+                continue
 
-        ticket_id = str(row[id_field]) if id_field in row and pd.notna(row[id_field]) else f"row_{idx+1}"
+            chunk_id = str(row[id_field]) if id_field in row and pd.notna(row[id_field]) else f"row_{idx+1}"
 
-        chunks.append({
-            "text": text,
-            "source": ticket_id,
-            "page": idx + 1
-        })
+            chunks.append({
+                "text": text,
+                "source": chunk_id,
+                "page": idx + 1
+            })
 
-    print(f"  {len(chunks)} chunks from {Path(csv_path).name}")
+        print(f"  {len(chunks)} chunks from {Path(csv_path).name}")
     return chunks
 
 
