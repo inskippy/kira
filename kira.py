@@ -30,9 +30,9 @@ def main():
     #     index, chunks = build_index(PDF_DIR)
     name = sys.argv[1] if len(sys.argv) > 1 else "nasa"
     try:
-        index, chunks = load_index(name)
+        index, chunks, bm25 = load_index(name)
     except FileNotFoundError:
-        index, chunks = build_index(PDF_DIRS.get(name, name), name)
+        index, chunks, bm25 = build_index(PDF_DIRS.get(name, name), name)
     print(f"Ready. {index.ntotal} vectors loaded.\n")
 
     print("Launching KIRA: Knowledge Intelligence and Retrieval Assistant")
