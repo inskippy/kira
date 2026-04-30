@@ -170,7 +170,8 @@ prompt engineering identified as corrective action.
 Feel free to contribute and open PR's!
 - [x] Multi-index support (named collections with merged retrieval)
 - [ ] Semantic/variable chunking
-- [ ] Hybrid retrieval (dense + BM25)
+- [x] Hybrid retrieval (dense + BM25)
+  - [ ] Test cases for different retrieval methods
 - [ ] Conversation memory (multi-turn queries)
 - [ ] Cross-encoder reranking
 - [ ] Docx/xlsx ingestion
